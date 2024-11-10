@@ -340,6 +340,7 @@ const initializeApp = () => {
 
         renderSettings(state.settings, handleSettingsChange);
         initializeImageHandlers();
+        initializeVoiceInput();
 
         if (Object.keys(state.chats).length === 0) {
             const newChats = createNewChat(state.chats);
@@ -353,6 +354,67 @@ const initializeApp = () => {
 
     checkApiKey();
 };
+
+const initializeVoiceInput = () => {
+    const voiceButton = document.getElementById('voice-input');
+    let mediaRecorder;
+    let audioChunks = [];
+
+    voiceButton.addEventListener('click', async () => {
+        if (!mediaRecorder || mediaRecorder.state === 'inactive') {
+            // Начинаем запись
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaRecorder = new MediaRecorder(stream);
+
+                mediaRecorder.ondataavailable = (event) => {
+                    audioChunks.push(event.data);
+                };
+
+                mediaRecorder.onstop = async () => {
+                    const audioBlob = new Blob(audioChunks, { type: 'audio/mp3' });
+                    const formData = new FormData();
+                    formData.append('file', audioBlob, 'speech.mp3');
+                    formData.append('model', 'stt-openai/whisper-1');
+                    formData.append('response_format', 'text');
+                    formData.append('language', 'ru'); // опционально
+
+                    try {
+                        const response = await fetch(`${BASE_URL}/audio/transcriptions`, {
+                            method: 'POST',
+                            headers: {
+                                'Authorization': `Bearer ${getApiKey()}`
+                            },
+                            body: formData
+                        });
+
+                        const data = await response.text();
+                        console.log('Ответ от API:', data);
+
+                        document.getElementById('user-input').value += data;
+
+                    } catch (error) {
+                        console.error('Ошибка транскрибации:', error);
+                    }
+
+                    audioChunks = [];
+                    voiceButton.classList.remove('recording');
+                };
+
+                mediaRecorder.start();
+                voiceButton.classList.add('recording');
+
+            } catch (error) {
+                console.error('Ошибка доступа к микрофону:', error);
+            }
+        } else {
+            // Останавливаем запись
+            mediaRecorder.stop();
+            mediaRecorder.stream.getTracks().forEach(track => track.stop());
+        }
+    });
+};
+
 
 const setupSettingsListeners = (settings, onSettingsChange) => {
     const modelSelect = document.getElementById('model-select');
